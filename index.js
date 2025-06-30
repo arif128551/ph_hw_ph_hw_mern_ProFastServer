@@ -95,6 +95,23 @@ async function run() {
 			}
 		});
 
+		app.get("/parcel/:id", async (req, res) => {
+			try {
+				const id = req.params.id;
+				const query = { _id: new ObjectId(id) };
+				const parcel = await parcelCollection.findOne(query);
+
+				if (!parcel) {
+					return res.status(404).send({ message: "Parcel not found" });
+				}
+
+				res.send(parcel);
+			} catch (error) {
+				console.error("Error fetching parcel:", error);
+				res.status(500).send({ message: "Internal server error" });
+			}
+		});
+
 		// // Send a ping to confirm a successful connection
 		// await client.db("admin").command({ ping: 1 });
 		// console.log("Pinged your deployment. You successfully connected to MongoDB!");
