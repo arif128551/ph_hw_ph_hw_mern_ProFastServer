@@ -44,9 +44,60 @@ async function run() {
 			}
 		});
 
+		app.get("/parcels", async (req, res) => {
+			try {
+				const userEmail = req.query.email; // example: /parcels?email=user@example.com
+				let query = {};
+
+				if (userEmail) {
+					query.created_by = userEmail;
+				}
+
+				const projection = {
+					title: 1,
+					tracking_id: 1,
+					created_by: 1,
+					senderRegion: 1,
+					receiverRegion: 1,
+					parcelWeight: 1,
+					deliveryCost: 1,
+					delivery_status: 1,
+					payment_status: 1,
+					created_at: 1,
+					type: 1,
+				};
+
+				const parcels = await parcelCollection
+					.find(query)
+					.project(projection)
+					.sort({ created_at: -1 }) // latest first
+					.toArray();
+
+				res.send(parcels);
+			} catch (error) {
+				res.status(500).send({ message: "Server Error", error: error.message });
+			}
+		});
+
+		app.delete("/parcel/:id", async (req, res) => {
+			try {
+				const id = req.params.id;
+				const result = await parcelCollection.deleteOne({ _id: new ObjectId(id) });
+
+				if (result.deletedCount === 1) {
+					res.send({ success: true, message: "Parcel deleted successfully", deletedCount: 1 });
+				} else {
+					res.status(404).send({ success: false, message: "Parcel not found" });
+				}
+			} catch (error) {
+				console.error("Delete error:", error);
+				res.status(500).send({ success: false, message: "Server error" });
+			}
+		});
+
 		// // Send a ping to confirm a successful connection
-		await client.db("admin").command({ ping: 1 });
-		console.log("Pinged your deployment. You successfully connected to MongoDB!");
+		// await client.db("admin").command({ ping: 1 });
+		// console.log("Pinged your deployment. You successfully connected to MongoDB!");
 	} finally {
 	}
 }
