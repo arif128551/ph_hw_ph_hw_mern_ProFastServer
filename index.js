@@ -234,6 +234,45 @@ async function run() {
 			}
 		});
 
+		app.post("/users", async (req, res) => {
+			try {
+				const userData = req.body;
+
+				// Check if user already exists
+				const existingUser = await userCollection.findOne({ email: userData.email });
+				if (existingUser) {
+					return res.status(409).json({ message: "User already exists" });
+				}
+
+				const result = await userCollection.insertOne(userData);
+				res.status(201).json({
+					message: "User registered successfully",
+					insertedId: result.insertedId,
+				});
+			} catch (err) {
+				console.error("Error saving user:", err.message);
+				res.status(500).json({ error: "Internal Server Error" });
+			}
+		});
+
+		app.patch("/users/:email", async (req, res) => {
+			try {
+				const email = req.params.email;
+				const updateData = req.body;
+
+				const result = await userCollection.updateOne({ email }, { $set: updateData });
+
+				if (result.modifiedCount > 0) {
+					res.status(200).json({ message: "User info updated successfully" });
+				} else {
+					res.status(404).json({ message: "User not found or no changes made" });
+				}
+			} catch (err) {
+				console.error("Error updating user:", err.message);
+				res.status(500).json({ error: "Internal Server Error" });
+			}
+		});
+
 		// // Send a ping to confirm a successful connection
 		// await client.db("admin").command({ ping: 1 });
 		// console.log("Pinged your deployment. You successfully connected to MongoDB!");
