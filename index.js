@@ -176,10 +176,13 @@ async function run() {
 			try {
 				const userEmail = req.query.email;
 
-				// 🔍 Query setup
-				const query = userEmail ? { email: userEmail } : {};
+				if (!userEmail) {
+					return res.status(400).json({ message: "Email is required" });
+				}
+
+				const query = { email: userEmail };
 				const options = {
-					sort: { paid_at: -1 }, // ✅ latest payments first
+					sort: { paid_at: -1 },
 				};
 
 				const payments = await paymentsCollection.find(query, options).toArray();
