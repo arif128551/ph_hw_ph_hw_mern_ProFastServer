@@ -1,6 +1,16 @@
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
+var admin = require("firebase-admin");
+
+const decoded = Buffer.from(process.env.FIREBASE_SERVICE_KEY, "base64").toString("utf8");
+var serviceAccount = JSON.parse(decoded);
+if (!admin.apps.length) {
+	admin.initializeApp({
+		credential: admin.credential.cert(serviceAccount),
+	});
+}
+
 var express = require("express");
 const stripe = require("stripe")(process.env.PROFAST_STRIPE_SECRET_KEY);
 var cors = require("cors");
@@ -20,6 +30,31 @@ const client = new MongoClient(uri, {
 	},
 });
 
+const verifyFirebaseToken = async (req, res, next) => {
+	try {
+		const authHeader = req.headers.authorization;
+		if (!authHeader || !authHeader.startsWith("Bearer ")) {
+			return res.status(401).json({ message: "Unauthorized: No token provided" });
+		}
+
+		const token = authHeader.split(" ")[1];
+		const decodedToken = await admin.auth().verifyIdToken(token);
+		req.decoded = decodedToken;
+		next();
+	} catch (error) {
+		console.error("Token verification failed:", error.message);
+		res.status(403).json({ message: "Forbidden: Invalid token" });
+	}
+};
+
+const verifyEmailMatch = (req, res, next) => {
+	const userEmail = req.query.email || req.params.email || req.body.email;
+	if (!req.decoded?.email || req.decoded.email !== userEmail) {
+		return res.status(403).json({ message: "Forbidden access" });
+	}
+	next();
+};
+
 async function run() {
 	try {
 		const db = client.db("profast");
@@ -27,8 +62,9 @@ async function run() {
 		const parcelCollection = db.collection("parcels");
 		const paymentsCollection = db.collection("payments");
 		const trackingCollection = db.collection("trackings");
+		const ridersCollection = db.collection("riders");
 
-		app.post("/parcel", async (req, res) => {
+		app.post("/parcel", verifyFirebaseToken, async (req, res) => {
 			try {
 				const parcel = req.body;
 
@@ -47,7 +83,7 @@ async function run() {
 			}
 		});
 
-		app.get("/parcels", async (req, res) => {
+		app.get("/parcels", verifyFirebaseToken, async (req, res) => {
 			try {
 				const userEmail = req.query.email; // example: /parcels?email=user@example.com
 				let query = {};
@@ -82,7 +118,7 @@ async function run() {
 			}
 		});
 
-		app.delete("/parcel/:id", async (req, res) => {
+		app.delete("/parcel/:id", verifyFirebaseToken, verifyEmailMatch, async (req, res) => {
 			try {
 				const id = req.params.id;
 				const result = await parcelCollection.deleteOne({ _id: new ObjectId(id) });
@@ -98,7 +134,7 @@ async function run() {
 			}
 		});
 
-		app.get("/parcel/:id", async (req, res) => {
+		app.get("/parcel/:id", verifyFirebaseToken, verifyEmailMatch, async (req, res) => {
 			try {
 				const id = req.params.id;
 				const query = { _id: new ObjectId(id) };
@@ -115,7 +151,7 @@ async function run() {
 			}
 		});
 
-		app.post("/trackings", async (req, res) => {
+		app.post("/trackings", verifyFirebaseToken, async (req, res) => {
 			try {
 				const trackingData = req.body;
 
@@ -136,7 +172,7 @@ async function run() {
 			}
 		});
 
-		app.get("/trackings/:trackingId", async (req, res) => {
+		app.get("/trackings/:trackingId", verifyFirebaseToken, async (req, res) => {
 			try {
 				const { trackingId } = req.params;
 
@@ -152,7 +188,7 @@ async function run() {
 			}
 		});
 
-		app.post("/create-payment-intent", async (req, res) => {
+		app.post("/create-payment-intent", verifyFirebaseToken, async (req, res) => {
 			try {
 				const { amountInCents } = req.body;
 
@@ -172,7 +208,7 @@ async function run() {
 			}
 		});
 
-		app.get("/payments", async (req, res) => {
+		app.get("/payments", verifyFirebaseToken, verifyEmailMatch, async (req, res) => {
 			try {
 				const userEmail = req.query.email;
 
@@ -194,7 +230,7 @@ async function run() {
 			}
 		});
 
-		app.post("/payments", async (req, res) => {
+		app.post("/payments", verifyFirebaseToken, verifyEmailMatch, async (req, res) => {
 			try {
 				const { parcelId, email, amount, paymentMethod, transactionId } = req.body;
 
@@ -241,10 +277,13 @@ async function run() {
 			try {
 				const userData = req.body;
 
-				// Check if user already exists
+				//Check if user already exists
 				const existingUser = await userCollection.findOne({ email: userData.email });
 				if (existingUser) {
-					return res.status(409).json({ message: "User already exists" });
+					return res.status(200).json({
+						message: "User already exists, fallback to update",
+						exists: true,
+					});
 				}
 
 				const result = await userCollection.insertOne(userData);
@@ -258,7 +297,7 @@ async function run() {
 			}
 		});
 
-		app.patch("/users/:email", async (req, res) => {
+		app.patch("/users/:email", verifyFirebaseToken, verifyEmailMatch, async (req, res) => {
 			try {
 				const email = req.params.email;
 				const updateData = req.body;
@@ -273,6 +312,53 @@ async function run() {
 			} catch (err) {
 				console.error("Error updating user:", err.message);
 				res.status(500).json({ error: "Internal Server Error" });
+			}
+		});
+
+		app.post("/riders", verifyFirebaseToken, verifyEmailMatch, async (req, res) => {
+			try {
+				const rider = req.body;
+
+				// 🧠 Check if already applied
+				const existing = await ridersCollection.findOne({ email: rider.email });
+				if (existing) {
+					return res.status(409).json({ message: "You have already submitted your application." });
+				}
+
+				const result = await ridersCollection.insertOne(rider);
+
+				res.status(201).json({
+					message: "Application submitted successfully",
+					insertedId: result.insertedId,
+				});
+			} catch (err) {
+				console.error("Error inserting rider application:", err.message);
+				res.status(500).json({ error: "Internal Server Error" });
+			}
+		});
+
+		app.get("/riders", verifyFirebaseToken, async (req, res) => {
+			try {
+				const status = req.query.status;
+				const query = {};
+
+				if (status && status !== "all") {
+					query.status = status;
+				}
+
+				const riders = await ridersCollection.find(query).toArray();
+
+				res.status(200).json({
+					success: true,
+					count: riders.length,
+					data: riders,
+				});
+			} catch (error) {
+				console.error("Error fetching riders:", error);
+				res.status(500).json({
+					success: false,
+					message: "Failed to fetch riders",
+				});
 			}
 		});
 
