@@ -364,9 +364,18 @@ async function run() {
 		app.patch("/riders/:id", verifyFirebaseToken, async (req, res) => {
 			try {
 				const { id } = req.params;
-				const { status } = req.body;
+				const { status, email } = req.body;
 
 				const result = await ridersCollection.updateOne({ _id: new ObjectId(id) }, { $set: { status } });
+
+				// Update user role only if status is active
+				if (status === "active" && email) {
+					const userQuery = { email };
+					const userUpdateDoc = {
+						$set: { role: "rider" },
+					};
+					await userCollection.updateOne(userQuery, userUpdateDoc);
+				}
 
 				res.status(200).json({
 					success: true,
@@ -379,6 +388,49 @@ async function run() {
 					success: false,
 					message: "Failed to update rider status",
 				});
+			}
+		});
+
+		// GET /users/search?query=arif
+		app.get("/users/search", verifyFirebaseToken, async (req, res) => {
+			const { query } = req.query;
+
+			if (!query) {
+				return res.status(400).send({ message: "Query parameter is required" });
+			}
+
+			try {
+				const users = await userCollection
+					.find({
+						$or: [{ displayName: { $regex: query, $options: "i" } }, { email: { $regex: query, $options: "i" } }],
+					})
+					.project({ displayName: 1, email: 1, role: 1 }) // optional fields
+					.limit(10)
+					.toArray();
+
+				res.send(users);
+			} catch (error) {
+				console.error("User search error:", error);
+				res.status(500).send({ message: "Failed to search users" });
+			}
+		});
+
+		// PATCH /users/:id/role
+		app.patch("/users/:id/role", verifyFirebaseToken, async (req, res) => {
+			const { id } = req.params;
+			const { role } = req.body;
+
+			if (!["admin", "editor", "rider", "user"].includes(role)) {
+				return res.status(400).send({ message: "Invalid role" });
+			}
+
+			try {
+				const result = await userCollection.updateOne({ _id: new ObjectId(id) }, { $set: { role } });
+
+				res.send({ message: `User role updated to ${role}`, result });
+			} catch (error) {
+				console.error("Error updating user role:", error);
+				res.status(500).send({ message: "Failed to update user role" });
 			}
 		});
 
