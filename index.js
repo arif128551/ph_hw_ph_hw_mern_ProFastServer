@@ -361,6 +361,26 @@ async function run() {
 				});
 			}
 		});
+		app.patch("/riders/:id", verifyFirebaseToken, async (req, res) => {
+			try {
+				const { id } = req.params;
+				const { status } = req.body;
+
+				const result = await ridersCollection.updateOne({ _id: new ObjectId(id) }, { $set: { status } });
+
+				res.status(200).json({
+					success: true,
+					message: "Rider status updated successfully",
+					result,
+				});
+			} catch (error) {
+				console.error("Failed to update rider status:", error);
+				res.status(500).json({
+					success: false,
+					message: "Failed to update rider status",
+				});
+			}
+		});
 
 		// // Send a ping to confirm a successful connection
 		// await client.db("admin").command({ ping: 1 });
