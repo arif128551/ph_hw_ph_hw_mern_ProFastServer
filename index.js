@@ -281,7 +281,7 @@ async function run() {
 				const existingUser = await userCollection.findOne({ email: userData.email });
 				if (existingUser) {
 					return res.status(200).json({
-						message: "User already exists, fallback to update",
+						message: "User already exists. Use PATCH to update login info.",
 						exists: true,
 					});
 				}
